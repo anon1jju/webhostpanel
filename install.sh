@@ -12,7 +12,7 @@
 # =============================================================================
 set -e
 
-GITHUB_REPO="YOUR_GITHUB_USER/webhostpanel"   # <-- EDIT: e.g. "john/webhostpanel"
+GITHUB_REPO="anon1jju/webhostpanel"   # your repo: USERNAME/webhostpanel
 GITHUB_BRANCH="main"
 INSTALL_DIR="/opt/webhostpanel"
 PORT="8888"
@@ -39,12 +39,22 @@ if [ -f "$SCRIPT_DIR/index.php" ] && [ -f "$SCRIPT_DIR/inc/bootstrap.php" ]; the
 else
     echo ">> Downloading WebPanel from GitHub: $GITHUB_REPO ($GITHUB_BRANCH)..."
     SRC="/tmp/webpanel-src"
-    rm -rf "$SRC"
+    TARBALL="/tmp/webpanel.tar.gz"
+    rm -rf "$SRC" "$TARBALL"
     mkdir -p "$SRC"
-    curl -sSL "https://github.com/$GITHUB_REPO/archive/refs/heads/$GITHUB_BRANCH.tar.gz" \
-        | tar xz -C "$SRC" --strip-components=1
+    if ! curl -fsSL "https://github.com/$GITHUB_REPO/archive/refs/heads/$GITHUB_BRANCH.tar.gz" -o "$TARBALL"; then
+        echo "[!] Download failed: repo not found or not public."
+        echo "    GITHUB_REPO is set to: $GITHUB_REPO"
+        echo "    URL: https://github.com/$GITHUB_REPO/archive/refs/heads/$GITHUB_BRANCH.tar.gz"
+        exit 1
+    fi
+    if ! tar xzf "$TARBALL" -C "$SRC" --strip-components=1 2>/dev/null; then
+        echo "[!] Downloaded file is not a valid tarball."
+        exit 1
+    fi
+    rm -f "$TARBALL"
     if [ ! -f "$SRC/index.php" ]; then
-        echo "[!] Download failed. Check GITHUB_REPO / branch, or install manually."
+        echo "[!] index.php not found in the downloaded archive. Check GITHUB_BRANCH."
         exit 1
     fi
 fi
