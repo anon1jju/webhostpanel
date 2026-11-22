@@ -115,6 +115,10 @@ switch ($action) {
         $r = Filesys::list_dir((string)($_GET['path'] ?? ''));
         if (!$r[0]) { json_out(array('ok' => false, 'error' => $r[1])); }
         json_out(array('ok' => true, 'data' => $r[1], 'default_path' => Filesys::default_path()));
+    case 'fs_tree':
+        $r = Filesys::tree((string)($_GET['path'] ?? ''));
+        if (!$r[0]) { json_out(array('ok' => false, 'error' => $r[1])); }
+        json_out(array('ok' => true, 'data' => $r[1]));
     case 'fs_read':
         $r = Filesys::read_file((string)($_GET['path'] ?? ''));
         if (!$r[0]) { json_out(array('ok' => false, 'error' => $r[1])); }
