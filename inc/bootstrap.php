@@ -86,7 +86,11 @@ function json_out($data, $code = 200) {
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
-    echo json_encode($data);
+    $out = @json_encode($data, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+    if ($out === false) {
+        $out = json_encode(array('ok' => false, 'error' => 'JSON encoding failed: ' . json_last_error_msg()));
+    }
+    echo $out;
     exit;
 }
 
