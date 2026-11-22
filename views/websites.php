@@ -1,248 +1,159 @@
 <?php
-// WebPanel - nginx website (vhost) management.
-// On Linux: manages /etc/nginx/sites-available + sites-enabled and reloads nginx.
-// Elsewhere (e.g. Windows test): "virtual mode" - configs stored in data/sites/.
-
+// WebPanel - websites page: add/remove/toggle nginx vhosts, SSL.
 if (!defined('PANEL')) { exit('Direct access denied.'); }
+require PANEL_ROOT . '/views/layout.php';
 
-final class Websites {
+layout_top('Websites', 'websites');
+?>
+<div id="mode-banner"></div>
 
-    public static function mode() {
-        return (is_linux() && is_dir('/etc/nginx/sites-available')) ? 'nginx' : 'virtual';
-    }
+<div class="grid-side">
+  <div class="card">
+    <div class="card-head"><h3>Add Website</h3></div>
+    <form id="add-form" class="form">
+      <div class="field">
+        <label>Domain</label>
+        <input name="domain" type="text" placeholder="example.com" required />
+      </div>
+      <div class="field">
+        <label>Web root <span class="muted">(leave empty: auto)</span></label>
+        <input name="root" type="text" placeholder="/var/www/example.com" />
+      </div>
+      <div class="field">
+        <label>PHP-FPM version</label>
+        <select name="php" id="php-select"><option value="default">default</option></select>
+      </div>
+      <div class="field">
+        <label class="check"><input name="ssl" type="checkbox" value="1" /> Create self-signed SSL certificate</label>
+      </div>
+      <button type="submit" class="btn btn-primary">Create website</button>
+    </form>
+  </div>
 
-    private static function dirs() {
-        return array(
-            'avail' => '/etc/nginx/sites-available',
-            'enabled' => '/etc/nginx/sites-enabled',
-            'ssl' => '/etc/nginx/ssl',
-        );
-    }
+  <div class="card">
+    <div class="card-head">
+      <h3>Sites</h3>
+      <button id="reload-btn" class="btn">Reload nginx</button>
+    </div>
+    <table class="table">
+      <thead><tr><th>Domain</th><th>Root</th><th>PHP</th><th>SSL</th><th>Status</th><th class="w180">Actions</th></tr></thead>
+      <tbody id="sites-list"><tr><td colspan="6" class="loading">Loading&hellip;</td></tr></tbody>
+    </table>
+  </div>
+</div>
 
-    public static function validate_domain($d) {
-        $d = strtolower(trim((string)$d));
-        if ($d === 'localhost') { return $d; }
-        if (filter_var($d, FILTER_VALIDATE_IP)) { return $d; }
-        if (preg_match('/^(?=.{1,253}$)([a-z0-9]([a-z0-9\-]*[a-z0-9])?\.)+[a-z]{2,63}$/', $d)) { return $d; }
-        return false;
-    }
+<div id="task-box" class="card hidden">
+  <div class="card-head">
+    <h3>Task output <span id="task-name"></span></h3>
+    <button id="task-close" class="btn btn-xs">Close</button>
+  </div>
+  <pre id="task-log" class="log"></pre>
+</div>
 
-    // ------------------------------------------------------------ listing
-    public static function list_sites() {
-        $sites = array();
-        if (self::mode() === 'nginx') {
-            $dirs = self::dirs();
-            $avail = @glob($dirs['avail'] . '/*') ?: array();
-            foreach ($avail as $conf) {
-                if (!is_file($conf)) { continue; }
-                $name = basename($conf, '.conf');
-                $content = @file_get_contents($conf);
-                $domain = '';
-                $root = '';
-                $php = 'default';
-                $ssl = 0;
-                if (preg_match('/server_name\s+([^;]+);/', $content, $m)) {
-                    $domain = trim(strtok($m[1], ' '));
-                }
-                if (preg_match('/root\s+([^;]+);/', $content, $m)) {
-                    $root = trim(trim($m[1]), '"\'');
-                }
-                if (preg_match('#unix:(/run/php/|/var/run/php/)(php)?([0-9.]+)-fpm\.sock#', $content, $m)) {
-                    $php = $m[3];
-                }
-                if (strpos($content, 'ssl_certificate') !== false) { $ssl = 1; }
-                $enabled = is_link($dirs['enabled'] . '/' . $name) || is_file($dirs['enabled'] . '/' . $name);
-                $sites[] = array(
-                    'domain' => $domain ?: $name, 'root' => $root, 'php' => $php,
-                    'ssl' => $ssl, 'enabled' => $enabled, 'conf' => $name,
-                    'mode' => 'nginx',
-                );
-            }
-        } else {
-            foreach (db()->query('SELECT * FROM vhosts ORDER BY domain')->fetchAll() as $r) {
-                $sites[] = array(
-                    'domain' => $r['domain'], 'root' => $r['root'], 'php' => $r['php'],
-                    'ssl' => (int)$r['ssl'], 'enabled' => (int)$r['enabled'], 'conf' => $r['domain'],
-                    'mode' => 'virtual',
-                );
-            }
-        }
-        return $sites;
-    }
+<script>
+(function () {
+  var list = function () {
+    WP.api('website_list', {}, 'GET').then(function (d) {
+      if (!d.ok) { WP.toast(d.error, 'err'); return; }
+      var banner = document.getElementById('mode-banner');
+      banner.innerHTML = d.mode === 'nginx'
+        ? ''
+        : '<div class="alert alert-warn">nginx config dirs not found &mdash; running in <b>virtual mode</b> (configs stored under <code>data/sites/</code>). On your VPS the real nginx vhosts will be managed automatically.</div>';
 
-    public static function find($domain) {
-        foreach (self::list_sites() as $s) {
-            if ($s['domain'] === $domain || $s['conf'] === $domain) { return $s; }
-        }
-        return null;
-    }
+      var sel = document.getElementById('php-select');
+      var cur = sel.value;
+      sel.innerHTML = '';
+      d.php_versions.forEach(function (v) {
+        var o = document.createElement('option');
+        o.value = v; o.textContent = v;
+        sel.appendChild(o);
+      });
+      sel.value = (cur && d.php_versions.indexOf(cur) !== -1) ? cur : d.php_versions[0];
 
-    // ------------------------------------------------------------ config text
-    private static function config_text($domain, $root, $php, $ssl, $sslPath = '') {
-        $www = (strpos($domain, 'www.') === 0) ? '' : ' www.' . $domain;
-        $sslLines = '';
-        if ($ssl) {
-            $sslLines = "    listen 443 ssl;\n    listen [::]:443 ssl;\n";
-            if ($sslPath) {
-                $sslLines .= "    ssl_certificate " . $sslPath . "/" . $domain . ".crt;\n";
-                $sslLines .= "    ssl_certificate_key " . $sslPath . "/" . $domain . ".key;\n";
-                $sslLines .= "    ssl_protocols TLSv1.2 TLSv1.3;\n";
-            }
-        }
-        $socket = $php === 'default' ? 'unix:/run/php/php-fpm.sock' : 'unix:/run/php/php' . $php . '-fpm.sock';
-        $logName = preg_replace('/[^a-z0-9.\-]/', '_', $domain);
-        return "# WebPanel - managed site\n" .
-            "server {\n" .
-            "    listen 80;\n" .
-            "    listen [::]:80;\n" .
-            $sslLines .
-            "    server_name " . $domain . $www . ";\n" .
-            "\n" .
-            "    root " . $root . ";\n" .
-            "    index index.php index.html index.htm;\n" .
-            "\n" .
-            "    access_log /var/log/nginx/" . $logName . ".access.log;\n" .
-            "    error_log /var/log/nginx/" . $logName . ".error.log;\n" .
-            "    client_max_body_size 100m;\n" .
-            "\n" .
-            "    location / {\n" .
-            "        try_files \$uri \$uri/ /index.php?\$query_string;\n" .
-            "    }\n" .
-            "\n" .
-            "    location ~ \\.php\$ {\n" .
-            "        try_files \$uri =404;\n" .
-            "        fastcgi_pass " . $socket . ";\n" .
-            "        fastcgi_index index.php;\n" .
-            "        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;\n" .
-            "        include fastcgi_params;\n" .
-            "    }\n" .
-            "\n" .
-            "    location ~ /\\.(?!well-known).* {\n" .
-            "        deny all;\n" .
-            "    }\n" .
-            "}\n";
-    }
+      var tb = document.getElementById('sites-list');
+      tb.innerHTML = '';
+      d.sites.forEach(function (s) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td><b>' + WP.esc(s.domain) + '</b></td>' +
+          '<td class="mono">' + WP.esc(s.root) + '</td>' +
+          '<td>' + WP.esc(s.php) + '</td>' +
+          '<td>' + (s.ssl ? '<span class="pill ok">on</span>' : '<span class="pill off">off</span>') + '</td>' +
+          '<td>' + (s.enabled ? '<span class="pill ok">enabled</span>' : '<span class="pill off">disabled</span>') + '</td>' +
+          '<td><div class="btn-group">' +
+            '<button class="btn btn-xs" data-act="toggle" data-d="' + WP.esc(s.domain) + '">' + (s.enabled ? 'Disable' : 'Enable') + '</button>' +
+            '<button class="btn btn-xs" data-act="cert" data-d="' + WP.esc(s.domain) + '">SSL</button>' +
+            '<button class="btn btn-xs btn-danger" data-act="del" data-d="' + WP.esc(s.domain) + '">Delete</button>' +
+          '</div></td>';
+        tb.appendChild(tr);
+      });
+      if (!d.sites.length) {
+        tb.innerHTML = '<tr><td colspan="6" class="muted">No websites yet. Add your first site on the left.</td></tr>';
+      }
+      tb.querySelectorAll('button[data-act]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var domain = b.dataset.d;
+          if (b.dataset.act === 'del') {
+            WP.confirm('Delete website <b>' + WP.esc(domain) + '</b>? The web root folder will be kept.').then(function () {
+              WP.api('website_remove', { domain: domain }).then(function (r) {
+                handle(r);
+              });
+            });
+          } else if (b.dataset.act === 'toggle') {
+            WP.api('website_toggle', { domain: domain, enable: b.textContent === 'Enable' ? 1 : 0 }).then(handle);
+          } else if (b.dataset.act === 'cert') {
+            WP.confirm('Request a free Let\u2019s Encrypt certificate for <b>' + WP.esc(domain) + '</b>? (requires certbot)').then(function () {
+              WP.api('website_certbot', { domain: domain }).then(function (r) {
+                handle(r);
+                if (r.ok && r.result && r.result[2] && r.result[2].task_id) { watchTask(r.result[2].task_id); }
+              });
+            });
+          }
+        });
+      });
+    });
+  };
 
-    // ------------------------------------------------------------ actions
-    public static function add($domain, $root, $php, $ssl) {
-        $domain = self::validate_domain($domain);
-        if (!$domain) { return array(false, 'Invalid domain name.'); }
-        if (self::find($domain)) { return array(false, 'Site already exists.'); }
+  var handle = function (r) {
+    if (r.ok && r.result && r.result[0]) { WP.toast(r.result[1], 'ok'); list(); }
+    else { WP.toast(r.result && r.result[1] ? r.result[1] : (r.error || 'Failed'), 'err'); }
+  };
 
-        $php = (string)$php;
-        if ($php !== 'default' && !preg_match('/^\d+\.\d+$/', $php)) { $php = 'default'; }
+  var watchTask = function (id) {
+    var box = document.getElementById('task-box');
+    box.classList.remove('hidden');
+    var timer = setInterval(function () {
+      WP.api('task_poll', { id: id }).then(function (r) {
+        if (!r.ok) { clearInterval(timer); return; }
+        document.getElementById('task-name').textContent = '#' + id;
+        var log = document.getElementById('task-log');
+        log.textContent = r.log;
+        log.scrollTop = log.scrollHeight;
+        if (r.task.status === 'done') { clearInterval(timer); WP.toast('Task #' + id + ' finished.', 'ok'); list(); }
+        if (r.task.status === 'failed') { clearInterval(timer); WP.toast('Task #' + id + ' failed.', 'err'); }
+      });
+    }, 1500);
+  };
 
-        $defaultRoot = self::mode() === 'nginx' ? (config_get('www_root', '/var/www') . '/' . $domain) : str_replace('/', DIRECTORY_SEPARATOR, PANEL_ROOT . '/data/sites/www/' . $domain);
-        $root = trim((string)$root) !== '' ? rtrim(trim((string)$root), '/\\') : $defaultRoot;
-        if (!@is_dir($root)) {
-            if (!@mkdir($root, 0755, true)) {
-                return array(false, 'Could not create web root: ' . $root);
-            }
-        }
+  document.getElementById('add-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var f = new FormData(ev.target);
+    WP.api('website_add', {
+      domain: f.get('domain'), root: f.get('root'), php: f.get('php'), ssl: f.get('ssl') ? 1 : 0
+    }).then(function (r) {
+      if (r.ok && r.result && r.result[0]) { WP.toast(r.result[1], 'ok'); ev.target.reset(); list(); }
+      else { WP.toast(r.result && r.result[1] ? r.result[1] : 'Failed', 'err'); }
+    });
+  });
 
-        if (self::mode() === 'nginx') {
-            $dirs = self::dirs();
-            $conf = $dirs['avail'] . '/' . $domain . '.conf';
-            if (is_file($conf)) { return array(false, 'Config file already exists.'); }
-            $sslPath = '';
-            if ($ssl) {
-                if (!@is_dir($dirs['ssl'])) { @mkdir($dirs['ssl'], 0700, true); }
-                list(, $code, $ok) = sh(sudo_prefix() . 'openssl req -x509 -nodes -days 3650 -newkey rsa:2048 '
-                    . '-keyout ' . escapeshellarg($dirs['ssl'] . '/' . $domain . '.key') . ' '
-                    . '-out ' . escapeshellarg($dirs['ssl'] . '/' . $domain . '.crt') . ' '
-                    . '-subj "/CN=' . $domain . '" 2>&1');
-                if (!$ok) { return array(false, 'Could not generate SSL certificate.'); }
-                $sslPath = $dirs['ssl'];
-            }
-            $text = self::config_text($domain, $root, $php, (bool)$ssl, $sslPath);
-            if (@file_put_contents($conf, $text, LOCK_EX) === false) {
-                return array(false, 'Could not write config (permission denied?). Run panel as root.');
-            }
-            if (!@symlink($conf, $dirs['enabled'] . '/' . $domain) && !@copy($conf, $dirs['enabled'] . '/' . $domain)) {
-                @unlink($conf);
-                return array(false, 'Could not enable site.');
-            }
-            list($ok2, $msg) = Services::nginx_test_and_reload();
-            if (!$ok2) {
-                // roll back so nginx keeps working
-                @unlink($dirs['enabled'] . '/' . $domain);
-                return array(false, 'nginx config test failed: ' . $msg);
-            }
-            // default index page
-            if (!is_file($root . '/index.html') && !is_file($root . '/index.php')) {
-                @file_put_contents($root . '/index.html', "<!DOCTYPE html>\n<html><head><title>" . $domain . "</title></head>\n<body style='font-family:sans-serif;text-align:center;padding-top:15vh'><h1>" . $domain . "</h1><p>Site created by WebPanel. Replace this file with your website.</p></body></html>\n");
-            }
-        } else {
-            $st = db()->prepare('INSERT INTO vhosts (domain, root, php, ssl, enabled, created_at) VALUES (?,?,?,?,1,?)');
-            $st->execute(array($domain, $root, $php, (int)(bool)$ssl, time()));
-            @file_put_contents(PANEL_ROOT . '/data/sites/' . $domain . '.conf', self::config_text($domain, $root, $php, (bool)$ssl));
-            if (!is_file($root . '/index.html')) {
-                @file_put_contents($root . '/index.html', "<!DOCTYPE html>\n<html><body style='font-family:sans-serif;text-align:center;padding-top:15vh'><h1>" . $domain . "</h1><p>Virtual site (test mode) created by WebPanel.</p></body></html>\n");
-            }
-        }
-        return array(true, 'Site ' . $domain . ' created and enabled.');
-    }
+  document.getElementById('reload-btn').addEventListener('click', function () {
+    WP.api('nginx_reload', {}).then(handle);
+  });
+  document.getElementById('task-close').addEventListener('click', function () {
+    document.getElementById('task-box').classList.add('hidden');
+  });
 
-    public static function remove($domain) {
-        $site = self::find($domain);
-        if (!$site) { return array(false, 'Site not found.'); }
-        if (self::mode() === 'nginx') {
-            $dirs = self::dirs();
-            @unlink($dirs['enabled'] . '/' . $site['conf']);
-            @unlink($dirs['avail'] . '/' . $site['conf'] . '.conf');
-            if ($site['ssl']) {
-                @unlink($dirs['ssl'] . '/' . $site['conf'] . '.crt');
-                @unlink($dirs['ssl'] . '/' . $site['conf'] . '.key');
-            }
-            list($ok, $msg) = Services::nginx_test_and_reload();
-            if (!$ok) { return array(false, 'Site removed but nginx reload failed: ' . $msg); }
-        } else {
-            db()->prepare('DELETE FROM vhosts WHERE domain = ?')->execute(array($site['domain']));
-            @unlink(PANEL_ROOT . '/data/sites/' . $site['domain'] . '.conf');
-        }
-        return array(true, 'Site ' . $site['domain'] . ' removed. Web root was kept.');
-    }
-
-    public static function toggle($domain, $enable) {
-        $site = self::find($domain);
-        if (!$site) { return array(false, 'Site not found.'); }
-        if (self::mode() === 'nginx') {
-            $dirs = self::dirs();
-            if ($enable) {
-                if (!is_file($dirs['enabled'] . '/' . $site['conf']) && !@symlink($dirs['avail'] . '/' . $site['conf'] . '.conf', $dirs['enabled'] . '/' . $site['conf'])) {
-                    return array(false, 'Could not enable site.');
-                }
-            } else {
-                @unlink($dirs['enabled'] . '/' . $site['conf']);
-            }
-            list($ok, $msg) = Services::nginx_test_and_reload();
-            if (!$ok) { return array(false, 'nginx reload failed: ' . $msg); }
-        } else {
-            db()->prepare('UPDATE vhosts SET enabled = ? WHERE domain = ?')->execute(array($enable ? 1 : 0, $site['domain']));
-        }
-        return array(true, 'Site ' . $site['domain'] . ($enable ? ' enabled.' : ' disabled.'));
-    }
-
-    public static function issue_certbot($domain) {
-        $site = self::find($domain);
-        if (!$site) { return array(false, 'Site not found.'); }
-        if (self::mode() !== 'nginx') { return array(false, 'Let\'s Encrypt requires nginx on Linux.'); }
-        list(, , $hasCertbot) = sh('command -v certbot');
-        if (!$hasCertbot) { return array(false, 'certbot is not installed. Install it from App Store.'); }
-        $email = config_get('le_email', '');
-        $mailArg = $email ? '-m ' . escapeshellarg($email) : '--register-unsafely-without-email';
-        // Only request www if it actually resolves, otherwise certbot fails
-        $www = 'www.' . $domain;
-        list(, , $wwwOk) = (strpos($domain, 'www.') === 0) ? array(null, null, false) : sh('getent hosts ' . escapeshellarg($www) . ' >/dev/null 2>&1');
-        $domains = '-d ' . escapeshellarg($domain);
-        if ($wwwOk) { $domains .= ' -d ' . escapeshellarg($www); }
-        $cmd = sudo_prefix() . 'certbot --nginx ' . $domains
-            . ' --non-interactive --agree-tos ' . $mailArg . ' --redirect 2>&1';
-        $id = Tasks::start('Let\'s Encrypt: ' . $domain, $cmd);
-        return array(true, 'SSL request started (task #' . $id . ').', array('task_id' => $id));
-    }
-
-    public static function reload_nginx() {
-        return Services::nginx_test_and_reload();
-    }
-}
+  list();
+})();
+</script>
+<?php layout_bottom(); ?>
