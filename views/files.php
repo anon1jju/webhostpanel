@@ -12,40 +12,95 @@ if ($editPath !== '') {
         <h3>Editing: <code class="mono" id="edit-path"><?php echo e($editPath); ?></code></h3>
         <div class="btn-group">
           <button id="edit-back" class="btn">Back</button>
-          <button id="edit-save" class="btn btn-primary">Save</button>
+          <button id="edit-save" class="btn btn-primary">Save (Ctrl+S)</button>
         </div>
       </div>
       <div id="edit-err"></div>
-      <textarea id="editor" class="editor" spellcheck="false"></textarea>
+      <div class="editor-wrap">
+        <textarea id="editor" spellcheck="false"></textarea>
+      </div>
     </div>
+    <link rel="stylesheet" href="assets/codemirror/codemirror.min.css?v=<?php echo PANEL_VERSION; ?>" />
+    <link rel="stylesheet" href="assets/codemirror/addon/dialog/dialog.min.css?v=<?php echo PANEL_VERSION; ?>" />
+    <script src="assets/codemirror/codemirror.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/mode/clike/clike.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/mode/xml/xml.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/mode/css/css.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/mode/javascript/javascript.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/mode/htmlmixed/htmlmixed.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/mode/php/php.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/mode/sql/sql.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/mode/shell/shell.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/addon/edit/closebrackets.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/addon/edit/matchbrackets.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/addon/edit/closetag.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/addon/selection/active-line.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/addon/search/searchcursor.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/addon/search/search.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
+    <script src="assets/codemirror/addon/dialog/dialog.min.js?v=<?php echo PANEL_VERSION; ?>"></script>
     <script>
     (function () {
       var path = <?php echo json_encode($editPath); ?>;
-      var ta = document.getElementById('editor');
       var err = document.getElementById('edit-err');
+
+      function modeFor(name) {
+        var n = String(name || '').toLowerCase();
+        if (/\.php$|\.phtml$/.test(n)) return 'application/x-httpd-php';
+        if (/\.html?$/.test(n)) return 'htmlmixed';
+        if (/\.css$/.test(n)) return 'css';
+        if (/\.js$|\.mjs$/.test(n)) return 'javascript';
+        if (/\.json$/.test(n)) return { name: 'javascript', json: true };
+        if (/\.sql$/.test(n)) return 'text/x-sql';
+        if (/\.(sh|bash)$/.test(n)) return 'shell';
+        if (/\.(md|txt|log|conf|ini|cnf|env)$/.test(n)) return 'text/plain';
+        if (/\.xml$|\.svg$/.test(n)) return 'xml';
+        if (/\.ya?ml$/.test(n)) return 'yaml';
+        if (/\.(c|h|cpp|java|go|rs|py)$/.test(n)) return 'clike';
+        return 'text/plain';
+      }
+
+      var cm = CodeMirror.fromTextArea(document.getElementById('editor'), {
+        mode: modeFor(path),
+        lineNumbers: true,
+        indentUnit: 4,
+        tabSize: 4,
+        indentWithTabs: false,
+        lineWrapping: false,
+        matchBrackets: true,
+        autoCloseBrackets: true,
+        autoCloseTags: true,
+        styleActiveLine: true,
+        viewportMargin: Infinity
+      });
+
       WP.api('fs_read', { path: path }, 'GET').then(function (d) {
         if (!d.ok) {
           err.innerHTML = '<div class="alert alert-error">' + WP.esc(d.error) + '</div>';
-          ta.style.display = 'none';
+          cm.setOption('readOnly', true);
           return;
         }
-        ta.value = d.data.content;
+        cm.setValue(d.data.content);
+        cm.clearHistory();
+        cm.refresh();
       });
-      document.getElementById('edit-save').addEventListener('click', function () {
-        WP.api('fs_save', { path: path, content: ta.value }).then(function (r) {
+
+      var save = function () {
+        WP.api('fs_save', { path: path, content: cm.getValue() }).then(function (r) {
           if (r.ok && r.result[0]) { WP.toast(r.result[1], 'ok'); }
           else { WP.toast(r.result && r.result[1] ? r.result[1] : 'Save failed', 'err'); }
         });
-      });
+      };
+
+      document.getElementById('edit-save').addEventListener('click', save);
       document.getElementById('edit-back').addEventListener('click', function () {
         location.href = 'index.php?page=files';
       });
-      // Ctrl+S to save
-      ta.addEventListener('keydown', function (ev) {
-        if ((ev.ctrlKey || ev.metaKey) && ev.key === 's') {
-          ev.preventDefault();
-          document.getElementById('edit-save').click();
-        }
+      // Ctrl+S / Cmd+S to save
+      cm.setOption('extraKeys', {
+        'Ctrl-S': save,
+        'Cmd-S': save,
+        'Ctrl-F': 'findPersistent',
+        'Ctrl-H': 'replace'
       });
     })();
     </script>
