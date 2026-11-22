@@ -43,6 +43,31 @@ final class Filesys {
         return 'C:\\';
     }
 
+    /** Lightweight listing for the file tree (dirs first, then files). */
+    public static function tree($path) {
+        if (trim((string)$path) === '') { $path = self::default_path(); }
+        $path = self::real($path);
+        if ($path === null || !is_dir($path)) {
+            return array(false, 'Invalid directory.');
+        }
+        $items = @scandir($path);
+        if ($items === false) { return array(false, 'Permission denied.'); }
+        $dirs = array();
+        $files = array();
+        foreach ($items as $name) {
+            if ($name === '.' || $name === '..') { continue; }
+            $full = self::join($path, $name);
+            if (is_dir($full)) {
+                $dirs[] = array('name' => $name, 'full' => $full, 'is_dir' => true);
+            } else {
+                $files[] = array('name' => $name, 'full' => $full, 'is_dir' => false);
+            }
+        }
+        usort($dirs, function ($a, $b) { return strcasecmp($a['name'], $b['name']); });
+        usort($files, function ($a, $b) { return strcasecmp($a['name'], $b['name']); });
+        return array(true, array('path' => $path, 'entries' => array_merge($dirs, $files)));
+    }
+
     private static function seg($path) {
         $sep = is_linux() ? '/' : '\\';
         return $sep === '/' ? trim($path, '/') : trim($path, '\\');
