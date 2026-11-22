@@ -262,6 +262,32 @@ code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 1
 .svc-actions { margin-left: auto; display: flex; gap: 6px; }
 
 /* ------------------------------------------------------------- file manager */
+.fm-layout { display: flex; gap: 18px; align-items: flex-start; }
+.fm-tree {
+  width: 300px; flex-shrink: 0;
+  max-height: calc(100vh - 150px);
+  overflow: auto;
+  position: sticky; top: 0;
+  padding: 14px;
+}
+.fm-main { flex: 1; min-width: 0; }
+
+.tree { font-size: 13px; }
+.tnode { user-select: none; }
+.trow {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 6px; border-radius: 6px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.trow:hover { background: var(--primary-soft); }
+.trow.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.tcaret { width: 12px; flex-shrink: 0; color: var(--muted); font-size: 10px; display: inline-block; }
+.tcaret.spacer { visibility: hidden; }
+.tico { flex-shrink: 0; font-size: 13px; }
+.tname { overflow: hidden; text-overflow: ellipsis; }
+.tkids { padding-left: 14px; }
+.tempty { color: var(--muted); padding: 2px 6px 2px 23px; font-size: 12px; }
+
 .file-toolbar { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .path-box { display: flex; gap: 8px; flex: 1; min-width: 240px; }
 .path-box input { flex: 1; }
@@ -353,6 +379,8 @@ a.link:hover { text-decoration: underline; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .grid-2 { grid-template-columns: 1fr; }
   .grid-side { grid-template-columns: 1fr; }
+  .fm-layout { flex-direction: column; }
+  .fm-tree { width: 100%; position: static; max-height: 280px; }
 }
 @media (min-width: 1024px) {
   .sidebar { transform: translateX(0); }
