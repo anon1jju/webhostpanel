@@ -183,6 +183,20 @@ code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 1
   font-size: 13px; line-height: 1.55; resize: vertical; white-space: pre; overflow: auto;
 }
 
+/* CodeMirror editor (file manager) */
+.editor-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.editor-wrap .CodeMirror {
+  height: 70vh;
+  font-family: Consolas, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 /* ------------------------------------------------------------- buttons */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
