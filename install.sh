@@ -81,14 +81,20 @@ if command -v apt-get >/dev/null 2>&1; then
     echo ">> Checking PHP..."
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
+
+    # Install PHP CLI first (extension checks below need it)
+    if ! command -v php >/dev/null 2>&1; then
+        echo ">> Installing PHP CLI..."
+        apt-get install -y php-cli
+    fi
+
     PACKAGES=""
-    command -v php        >/dev/null 2>&1 || PACKAGES="$PACKAGES php-cli"
     php -m 2>/dev/null | grep -qi '^pdo_sqlite$' || PACKAGES="$PACKAGES php-sqlite3"
     php -m 2>/dev/null | grep -qi '^mbstring$'   || PACKAGES="$PACKAGES php-mbstring"
     php -m 2>/dev/null | grep -qi '^curl$'       || PACKAGES="$PACKAGES php-curl"
     php -m 2>/dev/null | grep -qi '^zip$'        || PACKAGES="$PACKAGES php-zip"
     php -m 2>/dev/null | grep -qi '^xml$'        || PACKAGES="$PACKAGES php-xml"
-    php -m 2>/dev/null | grep -qi '^openssl$'    || PACKAGES="$PACKAGES php-openssl"
+    # openssl is compiled into PHP on Ubuntu - there is no php-openssl package
     if [ -n "$PACKAGES" ]; then
         echo ">> Installing: $PACKAGES"
         apt-get install -y $PACKAGES
