@@ -31,9 +31,9 @@ final class Services {
             // systemctl may not exist -> fall back to service command
             list($out2, $code2, $ok2) = sh(sudo_prefix() . 'service ' . escapeshellarg($name) . ' ' . $action . ' 2>&1');
             $msg = implode("\n", array_slice($out2, -5));
-            return array($ok2, $ok2 ? 'Service ' . $name . ' ' . $action . ' ok.' : trim($msg) ?: 'Failed.');
+            return array($ok2, $ok2 ? ('Service ' . $name . ' ' . $action . ' ok.') : (trim($msg) ?: 'Failed.'));
         }
-        return array($ok, $ok ? 'Service ' . $name . ' ' . $action . ' ok.' : trim($msg) ?: 'Failed.');
+        return array($ok, $ok ? ('Service ' . $name . ' ' . $action . ' ok.') : (trim($msg) ?: 'Failed.'));
     }
 
     public static function nginx_test_and_reload() {
