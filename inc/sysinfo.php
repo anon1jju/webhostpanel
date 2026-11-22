@@ -18,7 +18,7 @@ final class Sys {
         }
         try {
             $v = $fn();
-        } catch (Exception $ex) {
+        } catch (Throwable $ex) {
             $v = null;
         }
         @file_put_contents($file, json_encode(array('t' => $now, 'v' => $v)), LOCK_EX);
