@@ -19,6 +19,7 @@ if (!is_logged_in()) {
 $action = isset($_GET['a']) ? preg_replace('/[^a-z0-9_]/', '', $_GET['a']) : '';
 $p = $_POST;
 
+try {
 switch ($action) {
 
     // ---------------------------------------------------------------- stats
@@ -240,4 +241,7 @@ switch ($action) {
 
     default:
         json_out(array('ok' => false, 'error' => 'Unknown API action.'), 404);
+}
+} catch (Throwable $ex) {
+    json_out(array('ok' => false, 'error' => $ex->getMessage() . ' @ ' . $ex->getFile() . ':' . $ex->getLine()), 500);
 }
