@@ -231,8 +231,12 @@ final class Websites {
         if (!$hasCertbot) { return array(false, 'certbot is not installed. Install it from App Store.'); }
         $email = config_get('le_email', '');
         $mailArg = $email ? '-m ' . escapeshellarg($email) : '--register-unsafely-without-email';
-        $cmd = sudo_prefix() . 'certbot --nginx -d ' . escapeshellarg($domain)
-            . (strpos($domain, 'www.') !== 0 ? ' -d ' . escapeshellarg('www.' . $domain) : '')
+        // Only request www if it actually resolves, otherwise certbot fails
+        $www = 'www.' . $domain;
+        list(, , $wwwOk) = (strpos($domain, 'www.') === 0) ? array(null, null, false) : sh('getent hosts ' . escapeshellarg($www) . ' >/dev/null 2>&1');
+        $domains = '-d ' . escapeshellarg($domain);
+        if ($wwwOk) { $domains .= ' -d ' . escapeshellarg($www); }
+        $cmd = sudo_prefix() . 'certbot --nginx ' . $domains
             . ' --non-interactive --agree-tos ' . $mailArg . ' --redirect 2>&1';
         $id = Tasks::start('Let\'s Encrypt: ' . $domain, $cmd);
         return array(true, 'SSL request started (task #' . $id . ').', array('task_id' => $id));
