@@ -2,6 +2,7 @@
 // WebPanel - file manager: file tree sidebar + browse/edit/upload/delete.
 
 if (!defined('PANEL')) { exit('Direct access denied.'); }
+require_once PANEL_ROOT . '/inc/filesys.php';
 require PANEL_ROOT . '/views/layout.php';
 
 $editPath = isset($_GET['edit']) ? (string)$_GET['edit'] : '';
@@ -234,6 +235,7 @@ layout_top('File Manager', 'files');
     if (kids.dataset.loaded) { return Promise.resolve(); }
     kids.dataset.loaded = '1';
     return WP.api('fs_tree', { path: path }, 'GET').then(function (d) {
+      kids.innerHTML = '';
       if (!d.ok) {
         kids.innerHTML = '<div class="tempty">Denied</div>';
         return;
